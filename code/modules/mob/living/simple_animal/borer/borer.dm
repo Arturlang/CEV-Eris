@@ -31,7 +31,6 @@
 	//holder_type = /obj/item/holder/borer //Theres no inhand sprites for holding borers, it turns you into a pink square
 	var/borer_level = 0                           // Level of borer.
 	var/borer_exp = 0                             // Borer experience.
-	var/last_request
 	var/used_dominate
 	var/max_chemicals = 50					// Max chemicals produce without a host
 	var/max_chemicals_inhost = 250          // Max chemicals produce within a host
@@ -43,6 +42,7 @@
 	var/docile = 0                          // Sugar can stop borers from acting.
 	var/has_reproduced
 	var/roundstart
+	var/is_using_ability = FALSE
 
 	// Abilities borer can use when outside the host
 	var/list/abilities_standalone = list(

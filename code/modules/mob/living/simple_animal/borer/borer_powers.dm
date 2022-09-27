@@ -14,24 +14,29 @@
 		to_chat(src, SPAN_DANGER("You are feeling far too docile to do that."))
 		return
 
-	if(!host || !src) return
-
-	to_chat(src, SPAN_NOTICE("You begin disconnecting from [host]'s synapses and prodding at their internal ear canal."))
+	to_chat(src, SPAN_NOTICE("You begin disconnecting from [host]'s synapses and prodding at their internal ear canal. Use this ability again to cancel it"))
 
 	if(!host.stat)
 		to_chat(host, SPAN_WARNING("An odd, uncomfortable pressure begins to build inside your skull, behind your ear..."))
+	is_using_ability = TRUE
+	// Ensure that even if the borer escapes during the do_after, they'll be able to leave their next host
+	if (!do_after(src, 100, host, FALSE, immobile = FALSE ) || (!host || stat >= UNCONSCIOUS))
+		to_chat(src, SPAN_WARNING("You don't manage to escape your host!"))
+		is_using_ability = FALSE
+		return
 
-	spawn(100)
-		if(!host || stat) return
+	if(!is_using_ability)
+		to_chat(src, SPAN_NOTICE("You stop trying to leave your host"))
+		return
 
-		to_chat(src, SPAN_DANGER("You wiggle out of [host]'s ear and plop to the ground."))
-		if(host.mind && !host.stat)
-			if(controlling)
-				to_chat(host, SPAN_DANGER("As though waking from a dream, you shake off the insidious mind control of the brain worm. Your thoughts are your own again."))
-			to_chat(host, SPAN_DANGER("Something slimy wiggles out of your ear and plops to the ground!"))
+	to_chat(src, SPAN_DANGER("You wiggle out of [host]'s ear and plop to the ground."))
+	if(host.mind && !host.stat)
+		if(controlling)
+			to_chat(host, SPAN_DANGER("As though waking from a dream, you shake off the insidious mind control of the brain worm. Your thoughts are your own again."))
+		to_chat(host, SPAN_DANGER("Something slimy wiggles out of your ear and plops to the ground!"))
 
-		detatch()
-		leave_host()
+	detatch()
+	leave_host()
 
 /mob/living/simple_animal/borer/proc/infest()
 	set category = "Abilities"
@@ -66,7 +71,9 @@
 	if(get_active_mutation(M, MUTATION_REJECT))
 		to_chat(src, SPAN_WARNING("Host's body actively rejects you."))
 		return
-
+	// Non-specific hole
+	var/target_hole = "orifice"
+	var/infestation_delay = 2.5 SECONDS
 	if(ishuman(M))
 		var/mob/living/carbon/human/H = M
 
@@ -77,26 +84,22 @@
 		if(!H.species.has_process[BP_BRAIN])
 			to_chat(src, SPAN_WARNING("\The [H] does not seem to have an ear canal to breach."))
 			return
-
+		target_hole = "your ear canal"
 		if(H.check_head_coverage() && H.head && !(H.head.canremove))
 			to_chat(src, SPAN_WARNING("You cannot get through that host's protective gear."))
 			return
+		if(H.check_head_coverage())
+			to_chat(src, SPAN_DANGER("The [H] is wearing protective gear. You can work around it, but it will take time."))
+			infestation_delay *= 3
 
-	to_chat(M, "Something slimy begins probing at the opening of your ear canal...")
-	to_chat(src, SPAN_DANGER("You slither up [M] and begin probing at their ear canal..."))
+	to_chat(M, "Something slimy begins probing at the opening of your [target_hole]...")
+	to_chat(src, SPAN_DANGER("You slither up [M] and begin probing at a [target_hole]..."))
 
-	var/infestation_delay = 2.5 SECONDS
 
 	// It's harder for a borer to infest NTs
 	if(is_neotheology_disciple(M))
 		to_chat(src, SPAN_DANGER("A nanofiber mesh implant inside [M]'s head tries to cut you off on your way in. You can work around it, but it will take time."))
 		infestation_delay *= 3
-
-	if(ishuman(M))
-		var/mob/living/carbon/human/H = M
-		if(H.check_head_coverage())
-			to_chat(src, SPAN_DANGER("That host's wearing protective gear. You can work around it, but it will take time."))
-			infestation_delay *= 3
 
 	// Borer gets host abilities before actually getting inside the host
 	// Workaround for a BYOND bug: http://www.byond.com/forum/post/1833666 << We fix this in a better way
@@ -104,9 +107,9 @@
 		to_chat(src, SPAN_DANGER("As [M] moves away, you are dislodged and fall to the ground."))
 		return
 
-	to_chat(src, SPAN_NOTICE("You wiggle into [M]'s ear."))
+	to_chat(src, SPAN_NOTICE("You wiggle into [M]'s [target_hole]."))
 	if(!M.stat)
-		to_chat(M, SPAN_DANGER("Something disgusting and slimy wiggles into your ear!"))
+		to_chat(M, SPAN_DANGER("Something disgusting and slimy wiggles into your [target_hole]!"))
 
 	if(invisibility)
 		src.invisibility = 0
@@ -132,11 +135,30 @@
 			var/mob/living/carbon/human/H = M
 			var/obj/item/organ/I = H.random_organ_by_process(BP_BRAIN)
 			if(!I) // No brain organ, so the borer moves in and replaces it permanently.
-				replace_brain()
+				var/query = alert(
+					src,
+					"Infesting this host will make you PERMANENTLY take it over as it's brain. Are you sure?",
+					"Are you sure?", 
+					"Yes",
+					"No"
+				)
+				if(query == "Yes")
+					replace_brain()
+				else
+					to_chat(src, SPAN_NOTICE("You decide against taking over [H]"))
 			else
 				// If they're in normally, implant removal can get them out.
 				var/obj/item/organ/external/head = H.get_organ(BP_HEAD)
-				head.implants += src
+				var/obj/item/organ/external/chest = H.get_organ(BP_CHEST)
+				if(head)
+					head.implants += src
+				// Add some fallback perhaps? No way a human lacks a chest, right?
+				else if(head)
+					chest.implants += src
+				else 
+					// If the impossible happens, sod off
+					detatch()
+					leave_host()
 
 /*
 /mob/living/simple_animal/borer/verb/devour_brain()
@@ -333,53 +355,55 @@
 		return
 
 	to_chat(src, SPAN_NOTICE("You begin delicately adjusting your connection to the host brain..."))
+	is_using_ability = TRUE
+	if(!do_after(src, 100, host, FALSE, immobile = FALSE ) || (!host || stat >= UNCONSCIOUS || controlling))
+		to_chat(src, SPAN_DANGER("You don't manage to take control of your host!"))
+		is_using_ability = FALSE
+		return
+	if(!is_using_ability)
+		to_chat("You stop trying to take over your host")
+		return
+	is_using_ability = FALSE
+	to_chat(src, SPAN_DANGER("You plunge your probosci deep into the cortex of the host brain, interfacing directly with their nervous system."))
+	to_chat(host, SPAN_DANGER("You feel a strange shifting sensation behind your eyes as another consciousness displaces yours."))
+	host.add_language(LANGUAGE_CORTICAL)
 
-	spawn(100+(host.brainloss*5))
+	// host -> brain
+	var/h2b_id = host.computer_id
+	var/h2b_ip= host.lastKnownIP
+	host.computer_id = null
+	host.lastKnownIP = null
 
-		if(!host || !src || controlling)
-			return
-		else
+	qdel(host_brain)
+	host_brain = new(src)
 
-			to_chat(src, SPAN_DANGER("You plunge your probosci deep into the cortex of the host brain, interfacing directly with their nervous system."))
-			to_chat(host, SPAN_DANGER("You feel a strange shifting sensation behind your eyes as another consciousness displaces yours."))
-			host.add_language(LANGUAGE_CORTICAL)
+	host_brain.ckey = host.ckey
 
-			// host -> brain
-			var/h2b_id = host.computer_id
-			var/h2b_ip= host.lastKnownIP
-			host.computer_id = null
-			host.lastKnownIP = null
+	host_brain.name = host.name
 
-			qdel(host_brain)
-			host_brain = new(src)
+	if(!host_brain.computer_id)
+		host_brain.computer_id = h2b_id
 
-			host_brain.ckey = host.ckey
+	if(!host_brain.lastKnownIP)
+		host_brain.lastKnownIP = h2b_ip
 
-			host_brain.name = host.name
+	// self -> host
+	var/s2h_id = src.computer_id
+	var/s2h_ip= src.lastKnownIP
+	src.computer_id = null
+	src.lastKnownIP = null
 
-			if(!host_brain.computer_id)
-				host_brain.computer_id = h2b_id
+	host.ckey = src.ckey
 
-			if(!host_brain.lastKnownIP)
-				host_brain.lastKnownIP = h2b_ip
+	if(!host.computer_id)
+		host.computer_id = s2h_id
 
-			// self -> host
-			var/s2h_id = src.computer_id
-			var/s2h_ip= src.lastKnownIP
-			src.computer_id = null
-			src.lastKnownIP = null
+	if(!host.lastKnownIP)
+		host.lastKnownIP = s2h_ip
 
-			host.ckey = src.ckey
+	controlling = TRUE
 
-			if(!host.computer_id)
-				host.computer_id = s2h_id
-
-			if(!host.lastKnownIP)
-				host.lastKnownIP = s2h_ip
-
-			controlling = TRUE
-
-			update_abilities()
+	update_abilities()
 
 /mob/living/simple_animal/borer/proc/jumpstart()
 	set category = "Abilities"
@@ -438,7 +462,7 @@
 		return
 
 	var/list/copied_stats = list()
-	if(!host.stats)
+	if(host.stats)
 		for(var/stat_name in ALL_STATS)
 			var/host_stat = host.stats.getStat(stat_name, pure=TRUE)
 			var/borer_stat = stats.getStat(stat_name, pure=TRUE)
@@ -470,7 +494,8 @@
 
 		host.make_dizzy(copied_amount * 4)
 		host.confused = max(host.confused, copied_amount * 4)
-
+	else
+		to_chat(src, "There is nothing more you can learn from your host")
 
 /mob/living/simple_animal/borer/proc/write_mind()
 	set category = "Abilities"
@@ -517,6 +542,8 @@
 
 		host.make_dizzy(copied_amount * 2)
 		host.confused = max(host.confused, copied_amount * 2)
+	else
+		to_chat(src, "You know nothing that your host doesn't already know.")
 
 /mob/living/simple_animal/borer/proc/say_host()
 	set category = "Abilities"
@@ -563,7 +590,7 @@
 /mob/living/simple_animal/borer/proc/invisible()
 	set category = "Abilities"
 	set name = "Invisibility"
-	set desc = "Become invisible for living being."
+	set desc = "Become invisible for living being. This prevents you from using paralyze victim until the cooldown is over."
 
 	if(src.stat)
 		return
@@ -585,13 +612,13 @@
 	else
 		src.invisibility = 26
 		src.alpha = 100
-		to_chat(src, SPAN_NOTICE("You become invisible for living being."))
+		to_chat(src, SPAN_NOTICE("Other living beings can no longer see you."))
 		return
 
 /mob/living/simple_animal/borer/proc/biograde()
 	set category = "Abilities"
 	set name = "Biograde Vision"
-	set desc = "Make you see living being throug walls."
+	set desc = "Lets you see living beings through walls."
 
 	if(src.stat)
 		return
@@ -665,6 +692,7 @@
 	if(isghost(M) || M.stat == DEAD)
 		to_chat(src, "Not even you can speak to the dead.")
 		return
+	to_chat(src, SPAN_NOTICE("You communed with [M], sending them: [text]"))
 
 	log_say("[key_name(src)] communed to [key_name(M)]: [text]")
 
